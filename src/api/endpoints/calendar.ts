@@ -5,6 +5,7 @@ import type {
   CalendarEventResponse,
   SourceCalendarsResponse,
   SourceCalendarResource,
+  CategoryResource,
   CreateCalendarEventRequest,
   UpdateCalendarEventRequest,
 } from "../types.js";
@@ -14,6 +15,11 @@ export interface GetCalendarEventsOptions {
   dateMax: string;
   timezone?: string;
   include?: string;
+}
+
+export interface CalendarEventsResult {
+  events: CalendarEventResource[];
+  categories: CategoryResource[];
 }
 
 /**
@@ -31,7 +37,7 @@ function addDays(dateStr: string, days: number): string {
  */
 export async function getCalendarEvents(
   options: GetCalendarEventsOptions
-): Promise<CalendarEventResource[]> {
+): Promise<CalendarEventsResult> {
   const client = getClient();
 
   // API treats date_max as exclusive, so add 1 day to include events on the end date
@@ -46,7 +52,12 @@ export async function getCalendarEvents(
       include: options.include,
     }
   );
-  return response.data;
+
+  const categories = (response.included ?? []).filter(
+    (item): item is CategoryResource => item.type === "category"
+  );
+
+  return { events: response.data, categories };
 }
 
 /**

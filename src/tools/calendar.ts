@@ -40,7 +40,7 @@ Returns a list of events with their titles, times, and details.`,
         const startDate = date ? parseDate(date, config.timezone) : getTodayDate(config.timezone);
         const endDate = dateEnd ? parseDate(dateEnd, config.timezone) : startDate;
 
-        const events = await getCalendarEvents({
+        const { events, categories } = await getCalendarEvents({
           dateMin: startDate,
           dateMax: endDate,
           timezone: config.timezone,
@@ -61,6 +61,11 @@ Returns a list of events with their titles, times, and details.`,
           };
         }
 
+        // Build category lookup for assignee names
+        const categoryMap = new Map(
+          categories.map((c) => [c.id, c.attributes.label ?? "Unknown"])
+        );
+
         // Format events for display
         const eventList = events
           .map((event) => {
@@ -72,6 +77,13 @@ Returns a list of events with their titles, times, and details.`,
               if (value !== null && value !== undefined) {
                 parts.push(`  ${key}: ${value}`);
               }
+            }
+
+            // Resolve category assignment from relationships
+            const categoryRef = event.relationships?.category?.data;
+            if (categoryRef) {
+              const name = categoryMap.get(categoryRef.id) ?? categoryRef.id;
+              parts.push(`  assigned_to: ${name}`);
             }
 
             return `- Event (ID: ${event.id})\n${parts.join("\n")}`;

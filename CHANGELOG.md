@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+This is a maintained fork of [TheEagleByte/skylight-mcp](https://github.com/TheEagleByte/skylight-mcp).
+Changes below include both upstream history (through v1.1.7) and new work in this fork.
+
+## [1.1.8] - 2026-04-13
+
+### Fixed
+
+- **Calendar assignments**: `get_calendar_events` now surfaces which family member is assigned to each event (`assigned_to` field). The API returns assignment data in `response.included` as `CategoryResource` objects linked via `relationships.category.data` on each event — this was previously discarded entirely.
+
+### Added
+
+- Unit tests for `getCalendarEvents` covering category extraction, `date_max` adjustment, and `assigned_to` formatting
+
 ## [1.1.7] - 2025-12-30
 
 ### Fixed

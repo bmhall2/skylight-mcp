@@ -137,10 +137,17 @@ export interface CalendarEventAttributes {
   [key: string]: unknown;
 }
 
+export interface CalendarEventRelationships {
+  category?: {
+    data: JsonApiResourceId | null;
+  };
+}
+
 export interface CalendarEventResource {
   type: "calendar_event";
   id: string;
   attributes: CalendarEventAttributes;
+  relationships?: CalendarEventRelationships;
 }
 
 // Device types

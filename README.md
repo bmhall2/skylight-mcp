@@ -1,5 +1,7 @@
 # Skylight MCP Server
 
+> **Maintained fork** of [TheEagleByte/skylight-mcp](https://github.com/TheEagleByte/skylight-mcp). The original project appears to be abandoned; this fork continues active development.
+
 An MCP (Model Context Protocol) server for the Skylight Calendar API. Enables AI assistants like Claude to interact with your Skylight family calendar, chores, lists, and more.
 
 ## Features
@@ -23,7 +25,7 @@ An MCP (Model Context Protocol) server for the Skylight Calendar API. Enables AI
   "mcpServers": {
     "skylight": {
       "command": "npx",
-      "args": ["@eaglebyte/skylight-mcp"],
+      "args": ["@bmhall2/skylight-mcp"],
       "env": {
         "SKYLIGHT_EMAIL": "your_email@example.com",
         "SKYLIGHT_PASSWORD": "your_password",
@@ -36,7 +38,7 @@ An MCP (Model Context Protocol) server for the Skylight Calendar API. Enables AI
 
 **Claude Code:**
 ```bash
-claude mcp add skylight npx @eaglebyte/skylight-mcp \
+claude mcp add skylight npx @bmhall2/skylight-mcp \
   -e SKYLIGHT_EMAIL=your_email@example.com \
   -e SKYLIGHT_PASSWORD=your_password \
   -e SKYLIGHT_FRAME_ID=your_frame_id
@@ -45,7 +47,7 @@ claude mcp add skylight npx @eaglebyte/skylight-mcp \
 #### Option 2: From source
 
 ```bash
-git clone https://github.com/TheEagleByte/skylight-mcp.git
+git clone https://github.com/bmhall2/skylight-mcp.git
 cd skylight-mcp && npm install && npm run build
 ```
 
@@ -233,7 +235,7 @@ Contributions are welcome! Here's how you can help:
 ### Development Setup
 
 ```bash
-git clone https://github.com/TheEagleByte/skylight-mcp.git
+git clone https://github.com/bmhall2/skylight-mcp.git
 cd skylight-mcp
 npm install
 npm run dev  # Start with hot reload
@@ -248,9 +250,9 @@ npm run dev  # Start with hot reload
 
 ## Issues & Support
 
-- **Bug reports**: [Open an issue](https://github.com/TheEagleByte/skylight-mcp/issues/new) with steps to reproduce
-- **Feature requests**: [Open an issue](https://github.com/TheEagleByte/skylight-mcp/issues/new) describing the use case
-- **Questions**: [Start a discussion](https://github.com/TheEagleByte/skylight-mcp/discussions) or open an issue
+- **Bug reports**: [Open an issue](https://github.com/bmhall2/skylight-mcp/issues/new) with steps to reproduce
+- **Feature requests**: [Open an issue](https://github.com/bmhall2/skylight-mcp/issues/new) describing the use case
+- **Questions**: [Start a discussion](https://github.com/bmhall2/skylight-mcp/discussions) or open an issue
 
 Please include relevant details like your Node.js version, error messages, and configuration (with sensitive values redacted).
 
