@@ -38,7 +38,7 @@ Use this to answer:
 
           const categoryList = categories
             .map((cat) => {
-              const parts = [`- ${cat.attributes.label ?? "Unnamed"}`];
+              const parts = [`- ${cat.attributes.label ?? "Unnamed"} (ID: ${cat.id})`];
               if (cat.attributes.color) {
                 parts.push(`  Color: ${cat.attributes.color}`);
               }
@@ -62,7 +62,7 @@ Use this to answer:
         const memberList = members
           .map((member) => {
             const attrs = member.attributes;
-            const parts = [`- ${attrs.label ?? "Unnamed"}`];
+            const parts = [`- ${attrs.label ?? "Unnamed"} (ID: ${member.id})`];
 
             if (attrs.color) {
               parts.push(`  Color: ${attrs.color}`);

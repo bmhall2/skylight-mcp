@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a maintained fork of [TheEagleByte/skylight-mcp](https://github.com/TheEagleByte/skylight-mcp).
 Changes below include both upstream history (through v1.1.7) and new work in this fork.
 
+## [1.1.9] - 2026-04-13
+
+### Fixed
+
+- **Family members**: `get_family_members` now includes the category ID for each member (e.g. `Sami (ID: 7790515)`), enabling AI assistants to assign events, chores, and rewards without asking the user for IDs separately
+
 ## [1.1.8] - 2026-04-13
 
 ### Fixed
