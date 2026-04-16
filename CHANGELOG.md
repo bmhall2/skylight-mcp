@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a maintained fork of [TheEagleByte/skylight-mcp](https://github.com/TheEagleByte/skylight-mcp).
 Changes below include both upstream history (through v1.1.7) and new work in this fork.
 
+## [1.1.10] - 2026-04-15
+
+### Fixed
+
+- **Authentication**: Updated email/password authentication to match Skylight's current web OAuth flow. The server now follows the browser login sequence (`/oauth/authorize` -> `/auth/session` -> `/oauth/token`) and uses the returned bearer token for API requests. The old `/api/sessions` endpoint is no longer used.
+
+### Changed
+
+- Centralized shared API constants (`SKYLIGHT_BASE_URL`, `SKYLIGHT_WEB_APP_URL`, `SKYLIGHT_API_VERSION`) into `src/api/constants.ts`
+- API requests now include `Skylight-Api-Version` and `User-Agent` headers
+- Subscription status is now detected via `/api/plus_access` after OAuth login rather than parsed from the login response
+- Added automated tests for the OAuth login flow
+
 ## [1.1.9] - 2026-04-13
 
 ### Fixed
