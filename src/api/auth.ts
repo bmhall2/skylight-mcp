@@ -26,6 +26,56 @@ export interface AuthResult {
   email: string;
   token: string;
   subscriptionStatus: string | null;
+  refreshToken?: string;
+  /** Epoch ms when the access token expires, if known. */
+  expiresAt?: number;
+}
+
+export interface TokenSet {
+  token: string;
+  refreshToken?: string;
+  expiresAt?: number;
+}
+
+/**
+ * Thrown when Skylight's Cloudflare front end rejects the request outright
+ * (bot protection / rate limiting), as opposed to a credentials problem.
+ */
+export class SkylightBlockedError extends Error {
+  constructor(step: string, status: number, rayId: string | null) {
+    super(
+      `Skylight ${step} was blocked by Cloudflare (HTTP ${status}${rayId ? `, Ray ID ${rayId}` : ""}). ` +
+        "This is bot protection, not a bad password - usually triggered by repeated logins. " +
+        "Wait a while before retrying, or set SKYLIGHT_TOKEN to a token copied from a browser session."
+    );
+    this.name = "SkylightBlockedError";
+  }
+}
+
+function isCloudflareBlock(response: Response, body: string): boolean {
+  if (response.status !== 403 && response.status !== 429 && response.status !== 503) {
+    return false;
+  }
+  const server = response.headers.get("server")?.toLowerCase() ?? "";
+  return (
+    server.includes("cloudflare") ||
+    response.headers.has("cf-ray") ||
+    /cloudflare|cf-error-details|attention required|just a moment/i.test(body)
+  );
+}
+
+function getCloudflareRayId(response: Response, body: string): string | null {
+  const header = response.headers.get("cf-ray");
+  if (header) {
+    return header;
+  }
+  const match = body.match(/Ray ID:?\s*(?:<[^>]+>\s*)*([0-9a-f]{12,})/i);
+  return match ? match[1] : null;
+}
+
+function summarizeErrorBody(body: string): string {
+  const title = body.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim();
+  return title ? `"${title}"` : body.slice(0, 200);
 }
 
 class CookieJar {
@@ -277,7 +327,11 @@ async function submitLoginForm(
     throw new Error("Invalid email or password. Please check your SKYLIGHT_EMAIL and SKYLIGHT_PASSWORD environment variables.");
   }
 
-  throw new Error(`Skylight login form submission failed: HTTP ${response.status}${errorBody ? ` - ${errorBody.slice(0, 200)}` : ""}`);
+  if (isCloudflareBlock(response, errorBody)) {
+    throw new SkylightBlockedError("login form submission", response.status, getCloudflareRayId(response, errorBody));
+  }
+
+  throw new Error(`Skylight login form submission failed: HTTP ${response.status}${errorBody ? ` - ${summarizeErrorBody(errorBody)}` : ""}`);
 }
 
 async function authorizeAuthenticatedSession(authorizeUrl: string, cookieJar: CookieJar): Promise<string> {
@@ -304,7 +358,26 @@ async function authorizeAuthenticatedSession(authorizeUrl: string, cookieJar: Co
   return location;
 }
 
-async function exchangeAuthorizationCode(code: string, codeVerifier: string): Promise<string> {
+function toTokenSet(data: OAuthTokenResponse): TokenSet {
+  const token = data.access_token ?? data.token;
+  if (!token) {
+    throw new Error("OAuth token response did not include an access token");
+  }
+
+  let expiresAt: number | undefined;
+  if (typeof data.expires_in === "number") {
+    const issuedAtMs = typeof data.created_at === "number" ? data.created_at * 1000 : Date.now();
+    expiresAt = issuedAtMs + data.expires_in * 1000;
+  }
+
+  return {
+    token,
+    refreshToken: typeof data.refresh_token === "string" ? data.refresh_token : undefined,
+    expiresAt,
+  };
+}
+
+async function exchangeAuthorizationCode(code: string, codeVerifier: string): Promise<TokenSet> {
   const tokenBody = new URLSearchParams({
     grant_type: "authorization_code",
     client_id: CLIENT_ID,
@@ -332,16 +405,44 @@ async function exchangeAuthorizationCode(code: string, codeVerifier: string): Pr
     throw new Error(`OAuth token exchange failed: HTTP ${response.status}${errorBody ? ` - ${errorBody.slice(0, 200)}` : ""}`);
   }
 
-  const data = (await response.json()) as OAuthTokenResponse;
-  const token = data.access_token ?? data.token;
-  if (!token) {
-    throw new Error("OAuth token exchange did not return an access token");
-  }
-
-  return token;
+  return toTokenSet((await response.json()) as OAuthTokenResponse);
 }
 
-async function detectSubscriptionStatus(token: string): Promise<string | null> {
+/**
+ * Exchange a refresh token for a new access token.
+ * Hits only the JSON token endpoint, never the HTML login form.
+ */
+export async function refreshAccessToken(refreshToken: string): Promise<TokenSet> {
+  const response = await fetch(`${SKYLIGHT_BASE_URL}/oauth/token`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json, text/javascript; q=0.01",
+      "Content-Type": "application/x-www-form-urlencoded",
+      Origin: SKYLIGHT_WEB_APP_URL,
+      Referer: `${SKYLIGHT_WEB_APP_URL}/`,
+      "User-Agent": WEB_USER_AGENT,
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: CLIENT_ID,
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    if (isCloudflareBlock(response, errorBody)) {
+      throw new SkylightBlockedError("token refresh", response.status, getCloudflareRayId(response, errorBody));
+    }
+    throw new Error(`OAuth token refresh failed: HTTP ${response.status}${errorBody ? ` - ${summarizeErrorBody(errorBody)}` : ""}`);
+  }
+
+  const tokens = toTokenSet((await response.json()) as OAuthTokenResponse);
+  // Some servers don't rotate refresh tokens; keep using the old one then.
+  return { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
+}
+
+export async function detectSubscriptionStatus(token: string): Promise<string | null> {
   try {
     const response = await fetch(`${SKYLIGHT_BASE_URL}/api/plus_access`, {
       method: "GET",
@@ -403,7 +504,7 @@ export async function login(email: string, password: string): Promise<AuthResult
   const authorizeUrl = await submitLoginForm(email, password, authenticityToken, cookieJar);
   const callbackLocation = await authorizeAuthenticatedSession(authorizeUrl, cookieJar);
   const authorizationCode = parseAuthorizationCode(callbackLocation, state);
-  const token = await exchangeAuthorizationCode(authorizationCode, codeVerifier);
+  const { token, refreshToken, expiresAt } = await exchangeAuthorizationCode(authorizationCode, codeVerifier);
   const subscriptionStatus = await detectSubscriptionStatus(token);
 
   console.error("[auth] OAuth login successful.");
@@ -412,5 +513,7 @@ export async function login(email: string, password: string): Promise<AuthResult
     email,
     token,
     subscriptionStatus,
+    refreshToken,
+    expiresAt,
   };
 }

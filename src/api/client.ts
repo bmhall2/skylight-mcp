@@ -1,5 +1,13 @@
 import { getConfig, usesEmailAuth, type Config } from "../config.js";
-import { login } from "./auth.js";
+import { detectSubscriptionStatus, login, refreshAccessToken } from "./auth.js";
+import {
+  clearCachedToken,
+  isTokenUsable,
+  readCachedToken,
+  withLoginLock,
+  writeCachedToken,
+  type CachedToken,
+} from "./token-cache.js";
 import { SKYLIGHT_API_VERSION, SKYLIGHT_BASE_URL } from "./constants.js";
 import {
   AuthenticationError,
@@ -28,6 +36,11 @@ export class SkylightClient {
   private resolvedToken: string | null = null;
   private loginPromise: Promise<{ token: string }> | null = null;
   private subscriptionStatus: SubscriptionStatus = null;
+  /** When the token in use was obtained (epoch ms), for email auth. */
+  private tokenSavedAt = 0;
+
+  /** A 401 this soon after getting a token is not a stale-token problem. */
+  private static readonly FRESH_TOKEN_WINDOW_MS = 5 * 60 * 1000;
 
   constructor(config?: Config) {
     this.config = config ?? getConfig();
@@ -64,8 +77,18 @@ export class SkylightClient {
     }
   }
 
+  private useCachedToken(cached: CachedToken): { token: string } {
+    this.subscriptionStatus = cached.subscriptionStatus as SubscriptionStatus;
+    this.tokenSavedAt = cached.savedAt;
+    return { token: cached.accessToken };
+  }
+
   /**
-   * Perform login and return token and userId
+   * Resolve a token for email/password auth, in order of preference:
+   *   1. a valid token cached on disk (shared by every server process)
+   *   2. the cached refresh token
+   *   3. a full browser-style form login (the step Cloudflare is touchy about)
+   * Steps 2-3 run under a cross-process lock so concurrent starts log in once.
    */
   private async performLogin(): Promise<{ token: string }> {
     const { email, password } = this.config;
@@ -73,11 +96,55 @@ export class SkylightClient {
       throw new AuthenticationError("Email and password are required for login");
     }
 
-    console.error("Logging in to Skylight...");
-    const result = await login(email, password);
-    this.subscriptionStatus = result.subscriptionStatus as SubscriptionStatus;
-    console.error(`Logged in as ${result.email}${result.subscriptionStatus ? ` (${result.subscriptionStatus})` : ""}`);
-    return { token: result.token };
+    const cached = await readCachedToken(email);
+    if (cached && isTokenUsable(cached)) {
+      console.error("[auth] Using cached Skylight token.");
+      return this.useCachedToken(cached);
+    }
+
+    return withLoginLock(async () => {
+      // Another process may have logged in while we waited for the lock.
+      const latest = await readCachedToken(email);
+      if (latest && isTokenUsable(latest)) {
+        console.error("[auth] Using Skylight token obtained by another server process.");
+        return this.useCachedToken(latest);
+      }
+
+      if (latest?.refreshToken) {
+        try {
+          console.error("[auth] Refreshing Skylight token...");
+          const refreshed = await refreshAccessToken(latest.refreshToken);
+          const subscriptionStatus =
+            (await detectSubscriptionStatus(refreshed.token)) ?? latest.subscriptionStatus;
+          const entry: CachedToken = {
+            email,
+            accessToken: refreshed.token,
+            refreshToken: refreshed.refreshToken,
+            expiresAt: refreshed.expiresAt,
+            subscriptionStatus,
+            savedAt: Date.now(),
+          };
+          await writeCachedToken(entry);
+          return this.useCachedToken(entry);
+        } catch (error) {
+          console.error(`[auth] Token refresh failed, falling back to full login: ${(error as Error).message}`);
+        }
+      }
+
+      console.error("Logging in to Skylight...");
+      const result = await login(email, password);
+      const entry: CachedToken = {
+        email,
+        accessToken: result.token,
+        refreshToken: result.refreshToken,
+        expiresAt: result.expiresAt,
+        subscriptionStatus: result.subscriptionStatus,
+        savedAt: Date.now(),
+      };
+      await writeCachedToken(entry);
+      console.error(`Logged in as ${result.email}${result.subscriptionStatus ? ` (${result.subscriptionStatus})` : ""}`);
+      return this.useCachedToken(entry);
+    });
   }
 
   /**
@@ -191,10 +258,18 @@ export class SkylightClient {
     console.error(`[client] Response: ${response.status}`);
 
     if (!response.ok) {
-      // For email/password auth, try re-login once on 401
-      if (response.status === 401 && usesEmailAuth(this.config) && !isRetry) {
-        console.error("[client] Got 401, attempting re-login...");
+      // For email/password auth, try re-login once on 401 - but only if the
+      // token is old enough to plausibly have expired. A 401 on a brand-new
+      // token means something else is wrong (e.g. frame ID), and re-running
+      // the login form on every request is what gets us blocked by Cloudflare.
+      const tokenIsFresh = Date.now() - this.tokenSavedAt < SkylightClient.FRESH_TOKEN_WINDOW_MS;
+      if (response.status === 401 && usesEmailAuth(this.config) && !isRetry && !tokenIsFresh) {
+        console.error("[client] Got 401, discarding cached token and re-authenticating...");
+        if (this.resolvedToken) {
+          await clearCachedToken(this.resolvedToken);
+        }
         this.resolvedToken = null;
+        response.body?.cancel();
         return this.request<T>(endpoint, options, true);
       }
       await this.handleResponseError(response, url);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { login } from "../src/api/auth.js";
+import { login, refreshAccessToken, SkylightBlockedError } from "../src/api/auth.js";
 
 function textResponse(status: number, body: string, headers: HeadersInit = {}): Response {
   return new Response(body, {
@@ -139,5 +139,84 @@ describe("auth", () => {
     await expect(login("user@example.com", "wrong-password")).rejects.toThrow(
       "Invalid email or password"
     );
+  });
+
+  it("reports a Cloudflare block distinctly from bad credentials", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.startsWith("https://app.ourskylight.com/oauth/authorize?")) {
+        return textResponse(302, "", { location: "https://app.ourskylight.com/auth/session/new" });
+      }
+      if (url === "https://app.ourskylight.com/auth/session/new") {
+        return textResponse(200, '<input type="hidden" name="authenticity_token" value="t" />');
+      }
+      if (url === "https://app.ourskylight.com/auth/session") {
+        return textResponse(
+          403,
+          '<!DOCTYPE html><html class="no-js ie6 oldie"><head><title>Attention Required! | Cloudflare</title></head></html>',
+          { server: "cloudflare", "cf-ray": "8abc123def456789-ORD" }
+        );
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const attempt = login("user@example.com", "secret");
+    await expect(attempt).rejects.toBeInstanceOf(SkylightBlockedError);
+    await expect(attempt).rejects.toThrow("Ray ID 8abc123def456789-ORD");
+  });
+
+  it("returns refresh token and expiry from login", async () => {
+    let capturedState = "";
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("prompt=login")) {
+        capturedState = new URL(url).searchParams.get("state") ?? "";
+        return textResponse(302, "", { location: "https://app.ourskylight.com/auth/session/new" });
+      }
+      if (url === "https://app.ourskylight.com/auth/session/new") {
+        return textResponse(200, '<input type="hidden" name="authenticity_token" value="t" />');
+      }
+      if (url === "https://app.ourskylight.com/auth/session") {
+        return textResponse(302, "", { location: "https://app.ourskylight.com/oauth/authorize?client_id=skylight-mobile" });
+      }
+      if (url === "https://app.ourskylight.com/oauth/authorize?client_id=skylight-mobile") {
+        return textResponse(302, "", { location: `https://ourskylight.com/welcome?code=c&state=${capturedState}` });
+      }
+      if (url === "https://app.ourskylight.com/oauth/token") {
+        return jsonResponse(200, { access_token: "a", refresh_token: "r", expires_in: 7200, created_at: 1_800_000_000 });
+      }
+      if (url === "https://app.ourskylight.com/api/plus_access") {
+        return textResponse(200, "");
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await login("user@example.com", "secret");
+    expect(result.refreshToken).toBe("r");
+    expect(result.expiresAt).toBe((1_800_000_000 + 7200) * 1000);
+  });
+
+  it("refreshes an access token without touching the login form", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      expect(url).toBe("https://app.ourskylight.com/oauth/token");
+      const body = init?.body instanceof URLSearchParams ? init.body : new URLSearchParams(String(init?.body ?? ""));
+      expect(body.get("grant_type")).toBe("refresh_token");
+      expect(body.get("refresh_token")).toBe("old-refresh");
+      expect(body.get("client_id")).toBe("skylight-mobile");
+      return jsonResponse(200, { access_token: "new-access" });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await refreshAccessToken("old-refresh");
+    expect(result).toEqual({ token: "new-access", refreshToken: "old-refresh", expiresAt: undefined });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

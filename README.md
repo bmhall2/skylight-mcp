@@ -94,6 +94,8 @@ The MCP server supports two authentication methods:
 
 Use your Skylight account credentials. The server will automatically log in and manage tokens.
 
+The token is cached in `~/.skylight-mcp/token.json` (override with `SKYLIGHT_TOKEN_CACHE`) and shared by every server process on the machine, so the login form is only used when the cached token and its refresh token have both expired. Delete that file to force a fresh login.
+
 ```env
 SKYLIGHT_EMAIL=your_email@example.com
 SKYLIGHT_PASSWORD=your_password
@@ -129,6 +131,7 @@ You still need to find your frame ID (the household identifier):
 | `SKYLIGHT_AUTH_TYPE` | No | `bearer` (default) or `basic` (for manual token) |
 | `SKYLIGHT_FRAME_ID` | Yes | Your household frame ID |
 | `SKYLIGHT_TIMEZONE` | No | Default timezone (default: `America/New_York`) |
+| `SKYLIGHT_TOKEN_CACHE` | No | Token cache path for email/password auth (default: `~/.skylight-mcp/token.json`) |
 
 ### Example .env file:
 

@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a maintained fork of [TheEagleByte/skylight-mcp](https://github.com/TheEagleByte/skylight-mcp).
 Changes below include both upstream history (through v1.1.7) and new work in this fork.
 
+## [Unreleased]
+
+### Fixed
+
+- **Authentication**: Email/password auth no longer replays the web login form on every server start. The OAuth token is cached on disk (`~/.skylight-mcp/token.json`, override with `SKYLIGHT_TOKEN_CACHE`) and shared by all server processes, refreshed with the refresh token when it expires, and a full login only happens when both fail. Concurrent server starts are serialized with a lock file so they log in at most once. Repeated form logins were tripping Skylight's Cloudflare bot protection (HTTP 403).
+- **Authentication**: A Cloudflare block is now reported as `SkylightBlockedError` with the Ray ID instead of a truncated HTML page.
+- **Authentication**: A 401 on a token obtained in the last 5 minutes no longer triggers a re-login (it points at a config problem such as the frame ID, not an expired token).
+
 ## [1.1.10] - 2026-04-15
 
 ### Fixed
