@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a maintained fork of [TheEagleByte/skylight-mcp](https://github.com/TheEagleByte/skylight-mcp).
 Changes below include both upstream history (through v1.1.7) and new work in this fork.
 
-## [Unreleased]
+## [1.1.11] - 2026-09-30
 
 ### Fixed
 
